@@ -37,6 +37,52 @@ object TMSServer {
     }
   }
 
+  def parseTiffLevelLayoutInfo(level :Int)(implicit rdd: RDD[(ProjectedExtent, Tile)], layoutScheme: ZoomedLayoutScheme):Option[String] = {
+    if (level < 0 || level > 30) {
+      return None
+    }
+    /**
+      * 根据层级计算对应层级的切片规则
+      */
+    val layerLayout = layoutScheme.levelForZoom(level)
+
+    /**
+      * 获取tiff在对应层级的layermetadata
+      */
+    val layerMetadata = TileLayerMetadata.fromRDD(rdd, layerLayout.layout)
+
+    /**
+      * 判断行列号是否在tiff的对应层级的layer范围内
+      */
+    val minKey = layerMetadata.bounds.get.minKey
+    val maxKey = layerMetadata.bounds.get.maxKey
+
+    val buffer = new StringBuilder
+    buffer ++= "<li>[Level]-"
+    buffer ++= level.toString
+    buffer ++= ":row("
+    buffer ++= s"${minKey.row}-${maxKey.row}"
+    buffer ++= ":),col("
+    buffer ++= s"${minKey.col}-${maxKey.col}"
+    buffer ++= ")</li>"
+
+    Some(buffer.toString)
+  }
+
+  def parseTiffAllLevelLayoutInfo(blevel : Int =0,elevel :Int = 30)(implicit rdd: RDD[(ProjectedExtent, Tile)], layoutScheme: ZoomedLayoutScheme):Option[String] = {
+    if(blevel>elevel || blevel <0 || elevel > 30){
+      None
+    }
+    val buffer = new StringBuilder
+    for(i <- blevel to elevel){
+        val li = parseTiffLevelLayoutInfo(i)
+        if(li.isDefined){
+          buffer ++= li.get
+        }
+    }
+    Some(buffer.toString())
+  }
+
   /**
     *
     * @param level 瓦片层级
@@ -139,6 +185,16 @@ object TMSServer {
               }
             }
         }
+    } ~
+    path("tilelayout"){
+      complete{
+        val res = parseTiffAllLevelLayoutInfo()
+        if(res.isEmpty){
+          StatusCodes.NotFound
+        }else{
+          HttpEntity(ContentTypes.`text/html(UTF-8)`,res.get)
+        }
+      }
     }
 
     /**
