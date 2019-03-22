@@ -17,6 +17,7 @@ import org.apache.hadoop.fs.Path
 import org.apache.spark.rdd.RDD
 
 import scala.collection.mutable
+import scala.concurrent.ExecutionContextExecutor
 import scala.io.StdIn
 
 /**
@@ -38,6 +39,15 @@ object TMSServer {
     }
   }
 
+  /**
+    *
+    * @param level 瓦片层级
+    * @param row 瓦片行号
+    * @param col 瓦片列号
+    * @param rdd implicit对象，geotiff的rdd结构
+    * @param layoutScheme 瓦片切割规则
+    * @return
+    */
   def renderPngTile(level: Int, row: Int, col: Int)(implicit rdd: RDD[(ProjectedExtent, Tile)], layoutScheme: ZoomedLayoutScheme): Option[Array[Byte]] = {
     if (level < 0 || level > 30 || row < 0 || col < 0) {
       return None
@@ -79,7 +89,7 @@ object TMSServer {
     if (tile.isEmpty) {
       None
     } else {
-      Some(tile(0).renderJpg().bytes)
+      Some(tile.head.renderJpg().bytes)
     }
   }
 
@@ -97,22 +107,22 @@ object TMSServer {
     /**
       * 初始化Actor环境
       */
-    implicit val system = ActorSystem("Gxxs-TMS")
+    implicit val system:ActorSystem = ActorSystem("Gxxs-TMS")
     implicit val materializer: ActorMaterializer = ActorMaterializer()
-    implicit val executionContext = system.dispatcher
+    implicit val executionContext:ExecutionContextExecutor = system.dispatcher
 
     /**
       * 初始化Spark环境
       */
     val sparkConf = new SparkConf(false).setMaster("local[4]").setAppName("GeotrellisTMSServer")
-    implicit val context = new SparkContext(sparkConf)
+    implicit val context:SparkContext = new SparkContext(sparkConf)
 
     /**
       * 初始化Geotrellis环境
       */
-    implicit val rdd = context.hadoopGeoTiffRDD(tiffpath)
-    implicit val layoutScheme = ZoomedLayoutScheme(WebMercator, 256)
-    implicit val layoutSchemeActorRef = system.actorOf(Props(classOf[LayoutSchemeActor], layoutScheme), "layout")
+    implicit val rdd :RDD[(ProjectedExtent,Tile)]  = context.hadoopGeoTiffRDD(tiffpath)
+    implicit val layoutScheme:ZoomedLayoutScheme = ZoomedLayoutScheme(WebMercator, 256)
+    implicit val layoutSchemeActorRef:ActorRef = system.actorOf(Props(classOf[LayoutSchemeActor], layoutScheme), "layout")
 
 
     /**
