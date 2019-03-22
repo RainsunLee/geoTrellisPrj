@@ -13,10 +13,8 @@ import org.apache.spark.{SparkConf, SparkContext}
 import geotrellis.spark.io.hadoop._
 import geotrellis.spark.tiling.{FloatingLayoutScheme, LayoutScheme, ZoomedLayoutScheme}
 import geotrellis.vector.ProjectedExtent
-import org.apache.hadoop.fs.Path
 import org.apache.spark.rdd.RDD
 
-import scala.collection.mutable
 import scala.concurrent.ExecutionContextExecutor
 import scala.io.StdIn
 
