@@ -7,12 +7,14 @@ import akka.stream.ActorMaterializer
 import akka.http.scaladsl.server.Directives._
 import akka.http.scaladsl.server.Route
 import geotrellis.proj4.{CRS, WebMercator}
+import geotrellis.raster.render.ColorMap
 import geotrellis.raster.{MultibandTile, Tile}
 import geotrellis.spark.{ContextRDD, LayerId, SpatialKey, TileLayerMetadata, withTilerMethods}
 import org.apache.spark.{SparkConf, SparkContext}
 import geotrellis.spark.io.hadoop._
 import geotrellis.spark.tiling.{FloatingLayoutScheme, LayoutScheme, ZoomedLayoutScheme}
 import geotrellis.vector.ProjectedExtent
+import org.apache.hadoop.fs.Path
 import org.apache.spark.rdd.RDD
 
 import scala.concurrent.ExecutionContextExecutor
@@ -92,7 +94,8 @@ object TMSServer {
     * @param layoutScheme 瓦片切割规则
     * @return
     */
-  def renderPngTile(level: Int, row: Int, col: Int)(implicit rdd: RDD[(ProjectedExtent, Tile)], layoutScheme: ZoomedLayoutScheme): Option[Array[Byte]] = {
+  def renderPngTile(level: Int, row: Int, col: Int)(implicit rdd: RDD[(ProjectedExtent, Tile)],
+                                                    layoutScheme: ZoomedLayoutScheme,colorMap:Option[ColorMap]): Option[Array[Byte]] = {
     if (level < 0 || level > 30 || row < 0 || col < 0) {
       return None
     }
@@ -125,7 +128,7 @@ object TMSServer {
       * 依据列号和行号生成索引，并在切片后图层rdd中查找对应瓦片
       */
     val key = SpatialKey(col, row)
-    val tile = tilesRdd.lookup(key)
+    val tile:Seq[Tile] = tilesRdd.lookup(key)
 
     /**
       * 对瓦片进行图片生成并返回字节流
@@ -133,7 +136,10 @@ object TMSServer {
     if (tile.isEmpty) {
       None
     } else {
-      Some(tile.head.renderJpg().bytes)
+      if(colorMap.isEmpty)
+        Some(tile.head.renderJpg().bytes)
+      else
+        Some(tile.head.renderPng(colorMap.get).bytes)
     }
   }
 
@@ -146,7 +152,8 @@ object TMSServer {
     /**
       * 指定原始数据
       */
-    val tiffpath = "file://E:/矩形区域.tif"
+//    val tiffpath = "file://E:/矩形区域.tif"
+    val tiffpath = "file:///E:/geo.tif"
 
     /**
       * 初始化Actor环境
@@ -165,6 +172,8 @@ object TMSServer {
       * 初始化Geotrellis环境
       */
     implicit val rdd :RDD[(ProjectedExtent,Tile)]  = context.hadoopGeoTiffRDD(tiffpath)
+    implicit val colormap =  HadoopGeoTiffReader.readSingleband(new Path(tiffpath)).options.colorMap
+
     implicit val layoutScheme:ZoomedLayoutScheme = ZoomedLayoutScheme(WebMercator, 256)
     implicit val layoutSchemeActorRef:ActorRef = system.actorOf(Props(classOf[LayoutSchemeActor], layoutScheme), "layout")
 
@@ -188,7 +197,7 @@ object TMSServer {
     } ~
     path("tilelayout"){
       complete{
-        val res = parseTiffAllLevelLayoutInfo()
+        val res = parseTiffAllLevelLayoutInfo(15,18)
         if(res.isEmpty){
           StatusCodes.NotFound
         }else{
